@@ -56,7 +56,7 @@ resource "aws_lb" "app_alb" {
   subnets            = var.subnet_ids
 
   drop_invalid_header_fields = true
-  enable_deletion_protection        = var.deletion_protection
+  enable_deletion_protection = var.deletion_protection
 
   tags = merge(
     var.tags,

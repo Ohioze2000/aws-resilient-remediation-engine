@@ -237,7 +237,7 @@ resource "aws_cloudwatch_metric_alarm" "high_memory_alarm" {
   }
   alarm_actions = [aws_sns_topic.cloudwatch_alarms_topic.arn]
   ok_actions    = [aws_sns_topic.cloudwatch_alarms_topic.arn]
-  tags = merge(var.tags, { Name = "${var.env_prefix}-ASG-High-Memory-Alarm" })
+  tags          = merge(var.tags, { Name = "${var.env_prefix}-ASG-High-Memory-Alarm" })
 }
 
 # --- UNHEALTHY TARGET ALARM ---
@@ -245,7 +245,7 @@ resource "aws_cloudwatch_metric_alarm" "unhealthy_target_alarm" {
   alarm_name          = "${var.env_prefix}-ALB-Unhealthy-Targets"
   comparison_operator = "GreaterThanOrEqualToThreshold"
   evaluation_periods  = 2
-  datapoints_to_alarm  = 2
+  datapoints_to_alarm = 2
   metric_name         = "UnHealthyHostCount"
   namespace           = "AWS/ApplicationELB"
   period              = 60
@@ -383,8 +383,8 @@ resource "aws_iam_role" "remediation_worker_role" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect = "Allow"
-      Action = "sts:AssumeRole"
+      Effect    = "Allow"
+      Action    = "sts:AssumeRole"
       Principal = { Service = "lambda.amazonaws.com" }
     }]
   })
@@ -415,18 +415,18 @@ resource "aws_iam_role_policy" "remediation_worker_policy" {
         Resource = "*"
       },
       {
-        Effect = "Allow"
-        Action = ["dynamodb:UpdateItem"]
+        Effect   = "Allow"
+        Action   = ["dynamodb:UpdateItem"]
         Resource = aws_dynamodb_table.remediation_incidents.arn
       },
       {
-        Effect  = "Allow"
-        Action  = ["cloudwatch:DescribeAlarms", "cloudwatch:GetMetricStatistics"]
+        Effect   = "Allow"
+        Action   = ["cloudwatch:DescribeAlarms", "cloudwatch:GetMetricStatistics"]
         Resource = "*"
       },
       {
-        Effect  = "Allow"
-        Action  = ["sqs:SendMessage"]
+        Effect   = "Allow"
+        Action   = ["sqs:SendMessage"]
         Resource = aws_sqs_queue.slack_notifications.arn
       }
     ]
@@ -438,8 +438,8 @@ resource "aws_iam_role" "remediation_dispatcher_role" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect = "Allow"
-      Action = "sts:AssumeRole"
+      Effect    = "Allow"
+      Action    = "sts:AssumeRole"
       Principal = { Service = "lambda.amazonaws.com" }
     }]
   })
@@ -492,21 +492,21 @@ resource "aws_lambda_function" "remediation_worker" {
   timeout          = 120
   environment {
     variables = {
-      NOTIFICATION_QUEUE_URL  = aws_sqs_queue.slack_notifications.url
-      TARGET_GROUP_ARN        = var.target_group_arn
-      ASG_NAME                = var.asg_name
-      ENV_PREFIX              = var.env_prefix
-      MAX_CAPACITY            = tostring(var.remediation_max_capacity)
-      CPU_ALARM_THRESHOLD      = tostring(var.cpu_alarm_threshold)
-      MEMORY_ALARM_THRESHOLD   = tostring(var.memory_alarm_threshold)
-      DISK_ALARM_THRESHOLD     = tostring(var.disk_alarm_threshold)
-      APP_ERROR_THRESHOLD      = tostring(var.log_error_threshold)
-      DISK_FSTYPE              = var.disk_fstype
-      INCIDENT_TABLE_NAME     = aws_dynamodb_table.remediation_incidents.name
-      VERIFICATION_DELAY_SECONDS = tostring(var.remediation_verification_delay_seconds)
-      VERIFICATION_ATTEMPTS = tostring(var.remediation_verification_attempts)
+      NOTIFICATION_QUEUE_URL        = aws_sqs_queue.slack_notifications.url
+      TARGET_GROUP_ARN              = var.target_group_arn
+      ASG_NAME                      = var.asg_name
+      ENV_PREFIX                    = var.env_prefix
+      MAX_CAPACITY                  = tostring(var.remediation_max_capacity)
+      CPU_ALARM_THRESHOLD           = tostring(var.cpu_alarm_threshold)
+      MEMORY_ALARM_THRESHOLD        = tostring(var.memory_alarm_threshold)
+      DISK_ALARM_THRESHOLD          = tostring(var.disk_alarm_threshold)
+      APP_ERROR_THRESHOLD           = tostring(var.log_error_threshold)
+      DISK_FSTYPE                   = var.disk_fstype
+      INCIDENT_TABLE_NAME           = aws_dynamodb_table.remediation_incidents.name
+      VERIFICATION_DELAY_SECONDS    = tostring(var.remediation_verification_delay_seconds)
+      VERIFICATION_ATTEMPTS         = tostring(var.remediation_verification_attempts)
       VERIFICATION_INTERVAL_SECONDS = tostring(var.remediation_verification_interval_seconds)
-      REMEDIATION_LOCK_TTL_SECONDS = tostring(var.remediation_lock_ttl_seconds)
+      REMEDIATION_LOCK_TTL_SECONDS  = tostring(var.remediation_lock_ttl_seconds)
     }
   }
   tags = var.tags
@@ -522,9 +522,9 @@ resource "aws_lambda_function" "remediation_dispatcher" {
   timeout          = 30
   environment {
     variables = {
-      INCIDENT_TABLE_NAME = aws_dynamodb_table.remediation_incidents.name
-      WORKER_FUNCTION_NAME = aws_lambda_function.remediation_worker.function_name
-      ENV_PREFIX           = var.env_prefix
+      INCIDENT_TABLE_NAME    = aws_dynamodb_table.remediation_incidents.name
+      WORKER_FUNCTION_NAME   = aws_lambda_function.remediation_worker.function_name
+      ENV_PREFIX             = var.env_prefix
       NOTIFICATION_QUEUE_URL = aws_sqs_queue.slack_notifications.url
     }
   }
@@ -605,7 +605,7 @@ resource "aws_sqs_queue" "slack_notifications" {
 resource "aws_iam_role" "slack_notifier_role" {
   name = "${var.env_prefix}-slack-notifier-role"
   assume_role_policy = jsonencode({
-    Version = "2012-10-17"
+    Version   = "2012-10-17"
     Statement = [{ Effect = "Allow", Action = "sts:AssumeRole", Principal = { Service = "lambda.amazonaws.com" } }]
   })
   tags = var.tags
@@ -629,13 +629,13 @@ resource "aws_iam_role_policy" "slack_notifier_policy" {
 }
 
 resource "aws_lambda_function" "slack_notifier" {
-  filename         = data.archive_file.remediation_lambda_zip.output_path
-  function_name    = "${var.env_prefix}-slack-notifier"
-  role             = aws_iam_role.slack_notifier_role.arn
-  handler          = "notifier.lambda_handler"
-  source_code_hash = data.archive_file.remediation_lambda_zip.output_base64sha256
-  runtime          = "python3.12"
-  timeout          = 30
+  filename                       = data.archive_file.remediation_lambda_zip.output_path
+  function_name                  = "${var.env_prefix}-slack-notifier"
+  role                           = aws_iam_role.slack_notifier_role.arn
+  handler                        = "notifier.lambda_handler"
+  source_code_hash               = data.archive_file.remediation_lambda_zip.output_base64sha256
+  runtime                        = "python3.12"
+  timeout                        = 30
   reserved_concurrent_executions = 2
   environment {
     variables = {
@@ -659,7 +659,7 @@ resource "aws_lambda_event_source_mapping" "slack_notification_queue" {
 resource "aws_iam_role" "health_reporter_role" {
   name = "${var.env_prefix}-health-reporter-role"
   assume_role_policy = jsonencode({
-    Version = "2012-10-17"
+    Version   = "2012-10-17"
     Statement = [{ Effect = "Allow", Action = "sts:AssumeRole", Principal = { Service = "lambda.amazonaws.com" } }]
   })
   tags = var.tags

@@ -95,7 +95,7 @@ resource "aws_launch_template" "web_server_lt" {
   }
 
   user_data = base64encode(templatefile("${path.root}/${var.user_data_path}", {
-    app_archive_url                = var.app_archive_url
+    app_archive_url                 = var.app_archive_url
     cloudwatch_agent_parameter_name = var.cloudwatch_agent_parameter_name
   }))
 
