@@ -26,7 +26,7 @@ env:
   TF_IN_AUTOMATION: "true"
   TF_INPUT: "false"
   TF_CLOUD_ORGANIZATION: DigitalTech
-  TF_WORKSPACE: awsSelfHealingInfra
+  TF_WORKSPACE: aws-resilient-remediation-engine
 
 jobs:
   validate-request:
