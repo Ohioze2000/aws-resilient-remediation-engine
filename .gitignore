@@ -1,0 +1,15 @@
+# Terraform local state and working files
+*.tfstate
+*.tfstate.backup
+.terraform/
+
+# Terraform variable files (may contain environment-specific secrets)
+*.tfvars
+*.tfvars.json
+
+# Generated/local artifacts
+*.zip
+__pycache__/
+*.py[cod]
+
+modules/monitoring/remediation_lambda.zip

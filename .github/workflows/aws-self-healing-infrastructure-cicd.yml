@@ -1,0 +1,288 @@
+
+name: "Terraform AWS Deploy"
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TF_CLOUD_ORGANIZATION: "DigitalTech"
+  TF_WORKSPACE: "asg-incid"
+  AWS_DEFAULT_REGION: "us-east-1"
+  AWS_EC2_METADATA_DISABLED: "true"
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+jobs:
+  # -------------------------------------------------------
+  # 1. Isolated Python unit tests - no AWS OIDC permissions
+  # -------------------------------------------------------
+  unit-tests:
+    name: "Python Unit Tests"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install Test Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            python -m pip install -r requirements.txt
+          fi
+          python -m pip install boto3 requests
+
+      - name: Compile Python
+        env:
+          AWS_DEFAULT_REGION: "us-east-1"
+          AWS_EC2_METADATA_DISABLED: "true"
+          AWS_SHARED_CREDENTIALS_FILE: /dev/null
+          AWS_CONFIG_FILE: /dev/null
+          SLACK_WEBHOOK_URL: "https://hooks.slack.test/example"
+          INCIDENT_TABLE_NAME: "test-incidents"
+          WORKER_FUNCTION_NAME: "test-worker"
+          NOTIFICATION_QUEUE_URL: "https://sqs.us-east-1.amazonaws.com/111111111111/test"
+          ASG_NAME: "test-asg"
+          TARGET_GROUP_ARN: "arn:aws:elasticloadbalancing:us-east-1:111111111111:targetgroup/test/abc"
+        run: |
+          python -m py_compile modules/monitoring/lambda/*.py tests/*.py
+
+      - name: Run Notification and Remediation Tests
+        env:
+          AWS_DEFAULT_REGION: "us-east-1"
+          AWS_EC2_METADATA_DISABLED: "true"
+          AWS_SHARED_CREDENTIALS_FILE: /dev/null
+          AWS_CONFIG_FILE: /dev/null
+          SLACK_WEBHOOK_URL: "https://hooks.slack.test/example"
+          INCIDENT_TABLE_NAME: "test-incidents"
+          WORKER_FUNCTION_NAME: "test-worker"
+          NOTIFICATION_QUEUE_URL: "https://sqs.us-east-1.amazonaws.com/111111111111/test"
+          ASG_NAME: "test-asg"
+          TARGET_GROUP_ARN: "arn:aws:elasticloadbalancing:us-east-1:111111111111:targetgroup/test/abc"
+        run: |
+          python -m unittest discover -s tests -v
+
+  # -------------------------------------------------------
+  # 2. Terraform quality gates - no AWS OIDC permissions
+  # -------------------------------------------------------
+  terraform-checks:
+    name: "Terraform Format and Validation"
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: terraform init -input=false
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      # HCP Terraform VCS integration may already create a
+      # speculative plan for pull requests. This command can
+      # create another plan if the workspace uses CLI-driven runs.
+      - name: Terraform Plan (Pull Request)
+        if: github.event_name == 'pull_request'
+        run: terraform plan -input=false
+
+  # -------------------------------------------------------
+  # 3. Deploy - push to main only, after all checks pass
+  # -------------------------------------------------------
+  deploy:
+    name: "Terraform Cloud Deployment"
+    runs-on: ubuntu-latest
+    needs:
+      - unit-tests
+      - terraform-checks
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main'
+
+    environment: production
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Slack Notification - Started
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_COLOR: "#439FE0"
+          SLACK_TITLE: "Infrastructure Pipeline Status: STARTED"
+          SLACK_MESSAGE: >-
+            Terraform deployment started for workspace asg-incid.
+            Commit: ${{ github.sha }}.
+            Triggered by: ${{ github.actor }}.
+
+      # Runner-side AWS operations only. HCP Terraform's AWS provider
+      # credentials must be configured separately for remote execution.
+      - name: Configure AWS Credentials (OIDC)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: GitHubActions-${{ github.run_id }}
+
+      - name: Verify AWS OIDC Identity
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: aws sts get-caller-identity
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: terraform init -input=false
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -input=false -out=tfplan
+
+      - name: Terraform Apply
+        run: terraform apply -input=false -auto-approve tfplan
+
+      # ---------------------------------------------------
+      # 4. Capture outputs from the applied Terraform state
+      # ---------------------------------------------------
+      - name: Capture Infrastructure Outputs
+        id: tf_outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          get_output() {
+            local output_name="$1"
+            terraform output -raw "$output_name"
+          }
+
+          echo "URL=$(get_output website_url)" >> "$GITHUB_OUTPUT"
+          echo "DOMAIN_NAME=$(get_output domain_name)" >> "$GITHUB_OUTPUT"
+          echo "ALB_ARN=$(get_output alb_arn)" >> "$GITHUB_OUTPUT"
+          echo "TARGET_GROUP_ARN=$(get_output target_group_arn)" >> "$GITHUB_OUTPUT"
+          echo "EC2_SG_ID=$(get_output ec2_security_group_id)" >> "$GITHUB_OUTPUT"
+          echo "ALB_DNS=$(get_output alb_dns_name)" >> "$GITHUB_OUTPUT"
+
+      # ---------------------------------------------------
+      # 5. Runtime infrastructure verification
+      # ---------------------------------------------------
+      - name: Setup Python for Infrastructure Verification
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Runtime Verification Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install boto3 requests
+
+      - name: Execute Infrastructure Verification Engine
+        env:
+          AWS_DEFAULT_REGION: ${{ env.AWS_DEFAULT_REGION }}
+          AWS_EC2_METADATA_DISABLED: "true"
+          DOMAIN_NAME: ${{ steps.tf_outputs.outputs.DOMAIN_NAME }}
+          APP_ENDPOINT: ${{ steps.tf_outputs.outputs.URL }}
+          ALB_ARN: ${{ steps.tf_outputs.outputs.ALB_ARN }}
+          TARGET_GROUP_ARN: ${{ steps.tf_outputs.outputs.TARGET_GROUP_ARN }}
+          EC2_SECURITY_GROUP_ID: ${{ steps.tf_outputs.outputs.EC2_SG_ID }}
+          ALB_DNS_NAME: ${{ steps.tf_outputs.outputs.ALB_DNS }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          ENV_PREFIX: "prod"
+        run: python validate_infra.py
+
+      - name: Slack Notification - Success
+        if: success()
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_COLOR: "good"
+          SLACK_TITLE: "Deployment and Infrastructure Verification SUCCESSFUL"
+          SLACK_MESSAGE: >-
+            All deployment and verification checks passed.
+            Website: ${{ steps.tf_outputs.outputs.URL }}.
+            Workspace: asg-incid.
+
+  # -------------------------------------------------------
+  # 6. Report failures from tests, Terraform checks or deploy
+  # -------------------------------------------------------
+  slack-failure:
+    name: "Slack Notification - Pipeline Failure"
+    runs-on: ubuntu-latest
+    needs:
+      - unit-tests
+      - terraform-checks
+      - deploy
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      (
+        needs.unit-tests.result == 'failure' ||
+        needs.terraform-checks.result == 'failure' ||
+        needs.deploy.result == 'failure'
+      )
+    permissions:
+      contents: read
+
+    steps:
+      - name: Slack Notification - Failure
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_COLOR: "danger"
+          SLACK_TITLE: "Infrastructure Pipeline Status: FAILED"
+          SLACK_MESSAGE: >-
+            A unit test, Terraform quality gate, deployment or runtime
+            verification step failed. Inspect the GitHub Actions run
+            for details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}.

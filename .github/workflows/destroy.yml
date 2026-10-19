@@ -1,0 +1,105 @@
+
+name: Destroy AWS Self-Healing Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type DESTROY to confirm infrastructure deletion'
+        required: true
+        type: string
+      reason:
+        description: 'Reason for destroying the environment'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aws-self-healing-infrastructure-destroy
+  cancel-in-progress: false
+
+env:
+  AWS_DEFAULT_REGION: us-east-1
+  AWS_EC2_METADATA_DISABLED: "true"
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  TF_CLOUD_ORGANIZATION: DigitalTech
+  TF_WORKSPACE: awsSelfHealingInfra
+
+jobs:
+  validate-request:
+    name: Validate destruction request
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Require explicit confirmation
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          DESTROY_REASON: ${{ inputs.reason }}
+        run: |
+          if [ "$CONFIRMATION" != "DESTROY" ]; then
+            echo "::error::Confirmation must be exactly DESTROY."
+            exit 1
+          fi
+
+          if [ -z "${DESTROY_REASON//[[:space:]]/}" ]; then
+            echo "::error::A destruction reason is required."
+            exit 1
+          fi
+
+          echo "Destruction request validated."
+
+  destroy:
+    name: Destroy infrastructure
+    runs-on: ubuntu-latest
+    needs: validate-request
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: GitHubActions-${{ github.run_id }}
+
+      - name: Verify AWS OIDC Identity
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: aws sts get-caller-identity
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Initialize Terraform
+        run: terraform init -input=false
+
+      - name: Validate Terraform configuration
+        run: terraform validate
+
+      - name: Destroy infrastructure
+        run: terraform destroy -input=false -auto-approve
+
+      - name: Report destroy request
+        if: always()
+        env:
+          DESTROY_REASON: ${{ inputs.reason }}
+          DESTROY_ACTOR: ${{ github.actor }}
+          DESTROY_RESULT: ${{ job.status }}
+          DESTROY_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          echo "Requested by: $DESTROY_ACTOR"
+          echo "Reason: $DESTROY_REASON"
+          echo "Job result: $DESTROY_RESULT"
+          echo "Run: $DESTROY_RUN_URL"
