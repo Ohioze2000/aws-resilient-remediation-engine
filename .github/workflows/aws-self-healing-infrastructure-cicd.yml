@@ -1,3 +1,4 @@
+#
 name: "Terraform AWS Deploy"
 
 on:
@@ -153,7 +154,7 @@ jobs:
           SLACK_MESSAGE: >-
             Terraform deployment started for workspace asg-incid.
             Commit: ${{ github.sha }}.
-            Triggered by: ${{ github.actor }}.
+            Triggered by: ${{ github.actor }}.     
 
       # Runner-side AWS operations only. HCP Terraform's AWS provider
       # credentials must be configured separately for remote execution.
@@ -163,7 +164,7 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
           aws-region: us-east-1
-          role-session-name: GitHubActions-${{ github.run_id }}
+          role-session-name: GitHubActions-${{ github.run_id }}    
 
       - name: Verify AWS OIDC Identity
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
