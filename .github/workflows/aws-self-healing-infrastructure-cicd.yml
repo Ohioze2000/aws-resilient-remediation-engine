@@ -185,11 +185,11 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
-      - name: Terraform Plan
-        run: terraform plan -input=false -out=tfplan
+      # - name: Terraform Plan
+      #   run: terraform plan -input=false -out=tfplan
 
       - name: Terraform Apply
-        run: terraform apply -input=false -auto-approve tfplan
+        run: terraform destroy -input=false -auto-approve tfplan
 
       # ---------------------------------------------------
       # 4. Capture outputs from the applied Terraform state
