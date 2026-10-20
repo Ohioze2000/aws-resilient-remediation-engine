@@ -18,7 +18,7 @@ concurrency:
 env:
   TF_CLOUD_ORGANIZATION: "DigitalTech"
   TF_WORKSPACE: "aws-resilient-remediation-engine"
-  AWS_DEFAULT_REGION: "us-east-1"
+  AWS_REGION: "us-east-1"
   AWS_EC2_METADATA_DISABLED: "true"
   TF_IN_AUTOMATION: "true"
   TF_INPUT: "false"
@@ -57,7 +57,7 @@ jobs:
 
       - name: Compile Python
         env:
-          AWS_DEFAULT_REGION: "us-east-1"
+          AWS_REGION: "us-east-1"
           AWS_EC2_METADATA_DISABLED: "true"
           AWS_SHARED_CREDENTIALS_FILE: /dev/null
           AWS_CONFIG_FILE: /dev/null
@@ -72,7 +72,7 @@ jobs:
 
       - name: Run Notification and Remediation Tests
         env:
-          AWS_DEFAULT_REGION: "us-east-1"
+          AWS_REGION: "us-east-1"
           AWS_EC2_METADATA_DISABLED: "true"
           AWS_SHARED_CREDENTIALS_FILE: /dev/null
           AWS_CONFIG_FILE: /dev/null
@@ -226,7 +226,7 @@ jobs:
 
       - name: Execute Infrastructure Verification Engine
         env:
-          AWS_DEFAULT_REGION: ${{ env.AWS_DEFAULT_REGION }}
+          AWS_REGION: ${{ env.AWS_REGION }}
           AWS_EC2_METADATA_DISABLED: "true"
           DOMAIN_NAME: ${{ steps.tf_outputs.outputs.DOMAIN_NAME }}
           APP_ENDPOINT: ${{ steps.tf_outputs.outputs.URL }}
