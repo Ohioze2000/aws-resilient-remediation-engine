@@ -1,3 +1,4 @@
+#
 name: "Terraform AWS Deploy"
 
 on:
@@ -189,7 +190,8 @@ jobs:
         run: terraform plan -input=false
 
       - name: Terraform Apply
-        run: terraform destroy -input=false -auto-approve tfplan
+        #run: terraform apply -input=false -auto-approve tfplan
+        run: terraform destroy -auto-approve -input=false
 
       # ---------------------------------------------------
       # 4. Capture outputs from the applied Terraform state
